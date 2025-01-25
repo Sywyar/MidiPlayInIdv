@@ -5,6 +5,7 @@ import com.sywyar.keyboard.keyboardenum.KeyCodeEnum;
 import com.sywyar.keyboard.keyboardenum.KeyTypeEnum;
 
 import javax.sound.midi.*;
+import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -22,7 +23,9 @@ public class MidiPlayInIdv {
             return;
         }
         String midiFilePath = args[0];
-        Sequence sequence = MidiSystem.getSequence(new java.io.File(midiFilePath));
+        Sequence sequence = MidiSystem.getSequence(new File(midiFilePath));
+        int ppq = sequence.getResolution();
+        double bpm = 120;
 
         MultiValueMap<Long, MidiPlayMessage> midiPlayMessages = new MultiValueMap<>();
 
@@ -30,6 +33,15 @@ public class MidiPlayInIdv {
             for (int i = 0; i < track.size(); i++) {
                 MidiEvent event = track.get(i);
                 MidiMessage message = event.getMessage();
+
+                if (message instanceof MetaMessage metaMessage) {
+                    if (metaMessage.getType() == 0x51) {
+                        byte[] data = metaMessage.getData();
+                        int tempo = ((data[0] & 0xFF) << 16) | ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
+
+                        bpm = 60000000.0 / tempo;
+                    }
+                }
 
                 if (message instanceof ShortMessage sm) {
 
@@ -62,7 +74,11 @@ public class MidiPlayInIdv {
         Set<Long> sortedKeys = new TreeSet<>(midiPlayMessages.keySet());
         for (Long l : sortedKeys) {
             List<MidiPlayMessage> list = midiPlayMessages.get(l);
-            Thread.sleep(l - lastTick);
+
+            long tickDiff = Math.abs(l - lastTick);
+            long timeInMillis = (long) ((tickDiff * 60000.0) / (bpm * ppq));
+            Thread.sleep(timeInMillis);
+
             lastTick = l;
             for (MidiPlayMessage midiPlayMessage : list) {
                 keyBoard.sendKeyboardMessage(midiPlayMessage.keyCode(), midiPlayMessage.keyType());
