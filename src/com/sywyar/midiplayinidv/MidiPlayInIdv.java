@@ -7,10 +7,7 @@ import com.sywyar.keyboard.keyboardenum.KeyTypeEnum;
 import javax.sound.midi.*;
 import java.io.File;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class MidiPlayInIdv {
     //static final String[] notes = {"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"};
@@ -28,6 +25,8 @@ public class MidiPlayInIdv {
         double bpm = 120;
 
         MultiValueMap<Long, MidiPlayMessage> midiPlayMessages = new MultiValueMap<>();
+        boolean sustainOn = false;
+        List<Integer> sustainedNotes = new ArrayList<>();
 
         for (Track track : sequence.getTracks()) {
             for (int i = 0; i < track.size(); i++) {
@@ -44,23 +43,39 @@ public class MidiPlayInIdv {
                 }
 
                 if (message instanceof ShortMessage sm) {
+                    int command = sm.getCommand();
+                    int key = sm.getData1();
+                    int velocity = sm.getData2();
+                    long tick = event.getTick();
 
-                    if (sm.getCommand() == ShortMessage.NOTE_ON) {
-                        int key = sm.getData1();
-                        long tick = event.getTick();
-
+                    if (command == ShortMessage.NOTE_ON && velocity > 0) {
                         key = findMidiNumber(key);
-
                         MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(key), KeyTypeEnum.down);
                         midiPlayMessages.put(tick, midiPlayMessage);
-                    } else if (sm.getCommand() == ShortMessage.NOTE_OFF) {
-                        int key = sm.getData1();
-                        long tick = event.getTick();
 
+                        if (sustainOn) {
+                            sustainedNotes.add(key);
+                        }
+                    } else if (command == ShortMessage.NOTE_OFF || (command == ShortMessage.NOTE_ON && velocity == 0)) {
                         key = findMidiNumber(key);
+                        if (sustainOn) {
+                            sustainedNotes.add(key);
+                        } else {
+                            MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(key), KeyTypeEnum.up);
+                            midiPlayMessages.put(tick, midiPlayMessage);
+                        }
+                    } else if (command == ShortMessage.CONTROL_CHANGE && sm.getData1() == 64) {
+                        if (sm.getData2() >= 64) {
+                            sustainOn = true;
+                        } else {
+                            sustainOn = false;
 
-                        MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(key), KeyTypeEnum.up);
-                        midiPlayMessages.put(tick, midiPlayMessage);
+                            for (int sustainedKey : sustainedNotes) {
+                                MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(sustainedKey), KeyTypeEnum.up);
+                                midiPlayMessages.put(tick, midiPlayMessage);
+                            }
+                            sustainedNotes.clear();
+                        }
                     }
                 }
             }
