@@ -25,8 +25,10 @@ public class MidiPlayInIdv {
         double bpm = 120;
 
         MultiValueMap<Long, MidiPlayMessage> midiPlayMessages = new MultiValueMap<>();
+
         boolean sustainOn = false;
         List<Integer> sustainedNotes = new ArrayList<>();
+        HashSet<Integer> ignoreEvents = new HashSet<>();
 
         for (Track track : sequence.getTracks()) {
             for (int i = 0; i < track.size(); i++) {
@@ -39,6 +41,7 @@ public class MidiPlayInIdv {
                         int tempo = ((data[0] & 0xFF) << 16) | ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
 
                         bpm = 60000000.0 / tempo;
+
                     }
                 }
 
@@ -51,7 +54,7 @@ public class MidiPlayInIdv {
                     if (command == ShortMessage.NOTE_ON && velocity > 0) {
                         key = findMidiNumber(key);
                         MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(key), KeyTypeEnum.down);
-                        midiPlayMessages.put(tick, midiPlayMessage);
+                        midiPlayMessages.put(tick, midiPlayMessage, bpm);
 
                         if (sustainOn) {
                             sustainedNotes.add(key);
@@ -62,7 +65,7 @@ public class MidiPlayInIdv {
                             sustainedNotes.add(key);
                         } else {
                             MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(key), KeyTypeEnum.up);
-                            midiPlayMessages.put(tick, midiPlayMessage);
+                            midiPlayMessages.put(tick, midiPlayMessage, bpm);
                         }
                     } else if (command == ShortMessage.CONTROL_CHANGE && sm.getData1() == 64) {
                         if (sm.getData2() >= 64) {
@@ -72,14 +75,18 @@ public class MidiPlayInIdv {
 
                             for (int sustainedKey : sustainedNotes) {
                                 MidiPlayMessage midiPlayMessage = new MidiPlayMessage(findKeyCode(sustainedKey), KeyTypeEnum.up);
-                                midiPlayMessages.put(tick, midiPlayMessage);
+                                midiPlayMessages.put(tick, midiPlayMessage, bpm);
                             }
                             sustainedNotes.clear();
                         }
+                    } else {
+                        ignoreEvents.add(command);
                     }
                 }
             }
         }
+
+        if (!ignoreEvents.isEmpty()) System.out.println("忽略的MIDI事件=" + ignoreEvents);
 
         System.out.println("解析完成，3秒后弹奏");
         Thread.sleep(3000);
@@ -88,10 +95,10 @@ public class MidiPlayInIdv {
         long lastTick = 0;
         Set<Long> sortedKeys = new TreeSet<>(midiPlayMessages.keySet());
         for (Long l : sortedKeys) {
-            List<MidiPlayMessage> list = midiPlayMessages.get(l);
+            List<MidiPlayMessage> list = midiPlayMessages.getValues(l);
 
             long tickDiff = Math.abs(l - lastTick);
-            long timeInMillis = (long) ((tickDiff * 60000.0) / (bpm * ppq));
+            long timeInMillis = (long) ((tickDiff * 60000.0) / (midiPlayMessages.getBpm(l) * ppq));
             Thread.sleep(timeInMillis);
 
             lastTick = l;

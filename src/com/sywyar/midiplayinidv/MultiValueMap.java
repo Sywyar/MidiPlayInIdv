@@ -3,26 +3,35 @@ package com.sywyar.midiplayinidv;
 import java.util.*;
 
 public class MultiValueMap<K, V> {
-    private final Map<K, List<V>> map;
+    private final Map<K, ValueContainer<V>> map;
 
     public MultiValueMap() {
         this.map = new HashMap<>();
     }
 
-    public void put(K key, V value) {
-        map.computeIfAbsent(key, k -> new ArrayList<>()).add(value);
+    public void put(K key, V value, double bpm) {
+        map.computeIfAbsent(key, k -> new ValueContainer<>(bpm)).add(value);
     }
 
-    public List<V> get(K key) {
-        return map.getOrDefault(key, Collections.emptyList());
+    public List<V> getValues(K key) {
+        ValueContainer<V> container = map.get(key);
+        return container != null ? container.getValues() : Collections.emptyList();
+    }
+
+    public double getBpm(K key) {
+        ValueContainer<V> container = map.get(key);
+        if (container != null) {
+            return container.getBpm();
+        }
+        throw new IllegalArgumentException("BPM not found for key: " + key);
     }
 
     public boolean remove(K key, V value) {
-        List<V> values = map.get(key);
-        if (values != null) {
-            boolean removed = values.remove(value);
-            if (values.isEmpty()) {
-                map.remove(key); // 如果列表为空，移除键
+        ValueContainer<V> container = map.get(key);
+        if (container != null) {
+            boolean removed = container.remove(value);
+            if (container.isEmpty()) {
+                map.remove(key);
             }
             return removed;
         }
@@ -48,5 +57,40 @@ public class MultiValueMap<K, V> {
     @Override
     public String toString() {
         return map.toString();
+    }
+
+    private static class ValueContainer<V> {
+        private final List<V> values;
+        private final double bpm;
+
+        public ValueContainer(double bpm) {
+            this.values = new ArrayList<>();
+            this.bpm = bpm;
+        }
+
+        public void add(V value) {
+            values.add(value);
+        }
+
+        public List<V> getValues() {
+            return values;
+        }
+
+        public double getBpm() {
+            return bpm;
+        }
+
+        public boolean remove(V value) {
+            return values.remove(value);
+        }
+
+        public boolean isEmpty() {
+            return values.isEmpty();
+        }
+
+        @Override
+        public String toString() {
+            return "Values: " + values + ", BPM: " + bpm;
+        }
     }
 }
