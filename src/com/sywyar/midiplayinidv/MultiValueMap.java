@@ -4,13 +4,43 @@ import java.util.*;
 
 public class MultiValueMap<K, V> {
     private final Map<K, ValueContainer<V>> map;
+    private final long resolution;
+    private final String fileName;
+    private HashSet<Integer> ignoreEvents = new HashSet<>();
+    private int totalSeconds = 0;
 
-    public MultiValueMap() {
-        this.map = new HashMap<>();
+    public int getTotalSeconds() {
+        return totalSeconds;
     }
 
-    public void put(K key, V value, double bpm) {
-        map.computeIfAbsent(key, k -> new ValueContainer<>(bpm)).add(value);
+    public void setTotalSeconds(int totalSeconds) {
+        this.totalSeconds = totalSeconds;
+    }
+
+    public long getResolution() {
+        return resolution;
+    }
+
+    public HashSet<Integer> getIgnoreEvents() {
+        return ignoreEvents;
+    }
+
+    public void setIgnoreEvents(HashSet<Integer> ignoreEvents) {
+        this.ignoreEvents = ignoreEvents;
+    }
+
+    public String getFileName() {
+        return fileName;
+    }
+
+    public MultiValueMap(long resolution, String fileName) {
+        this.map = new HashMap<>();
+        this.resolution = resolution;
+        this.fileName = fileName;
+    }
+
+    public void put(K key, V value, int tempo) {
+        map.computeIfAbsent(key, k -> new ValueContainer<>(tempo)).add(value);
     }
 
     public List<V> getValues(K key) {
@@ -18,10 +48,10 @@ public class MultiValueMap<K, V> {
         return container != null ? container.getValues() : Collections.emptyList();
     }
 
-    public double getBpm(K key) {
+    public double getTempo(K key) {
         ValueContainer<V> container = map.get(key);
         if (container != null) {
-            return container.getBpm();
+            return container.getTempo();
         }
         throw new IllegalArgumentException("BPM not found for key: " + key);
     }
@@ -61,11 +91,11 @@ public class MultiValueMap<K, V> {
 
     private static class ValueContainer<V> {
         private final List<V> values;
-        private final double bpm;
+        private final int tempo;
 
-        public ValueContainer(double bpm) {
+        public ValueContainer(int tempo) {
             this.values = new ArrayList<>();
-            this.bpm = bpm;
+            this.tempo = tempo;
         }
 
         public void add(V value) {
@@ -76,8 +106,8 @@ public class MultiValueMap<K, V> {
             return values;
         }
 
-        public double getBpm() {
-            return bpm;
+        public double getTempo() {
+            return tempo;
         }
 
         public boolean remove(V value) {
@@ -90,7 +120,7 @@ public class MultiValueMap<K, V> {
 
         @Override
         public String toString() {
-            return "Values: " + values + ", BPM: " + bpm;
+            return "Values: " + values + ", Tempo: " + tempo;
         }
     }
 }
