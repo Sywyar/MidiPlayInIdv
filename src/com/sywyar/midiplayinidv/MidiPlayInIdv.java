@@ -3,7 +3,6 @@ package com.sywyar.midiplayinidv;
 import com.sywyar.keyboard.KeyBoardDLL;
 import com.sywyar.keyboard.keyboardenum.KeyCodeEnum;
 import com.sywyar.keyboard.keyboardenum.KeyTypeEnum;
-import org.mozilla.universalchardet.UniversalDetector;
 
 import javax.sound.midi.*;
 import java.io.File;
@@ -127,16 +126,7 @@ public class MidiPlayInIdv {
                             break;
                         case 0x03:
                             if (midiPlayMessages.getSongName().isEmpty()) {
-                                String charsetName = detectCharset(data);
-                                Charset charset = StandardCharsets.UTF_8;
-                                try {
-                                    if (charsetName != null) {
-                                        charset = Charset.forName(charsetName);
-                                    }
-                                } catch (Exception ignored) {
-                                }
-
-                                String songName = new String(data, charset);
+                                String songName = new String(data);
                                 if (isGarbled(songName)) {
                                     songName = tryCommonCharsets(data);
                                 }
@@ -201,15 +191,6 @@ public class MidiPlayInIdv {
         midiPlayMessages.setIgnoreEvents(ignoreEvents);
 
         return midiPlayMessages;
-    }
-
-    private static String detectCharset(byte[] data) {
-        UniversalDetector detector = new UniversalDetector(null);
-        detector.handleData(data, 0, data.length);
-        detector.dataEnd();
-        String encoding = detector.getDetectedCharset();
-        detector.reset();
-        return encoding;
     }
 
     private static String tryCommonCharsets(byte[] data) {
