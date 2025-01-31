@@ -4,17 +4,27 @@ import java.util.*;
 
 public class MultiValueMap<K, V> {
     private final Map<K, ValueContainer<V>> map;
+    private List<TempoEvent> tempoEvents;
     private final long resolution;
     private final String fileName;
+    private String songName = "";
     private HashSet<Integer> ignoreEvents = new HashSet<>();
-    private int totalSeconds = 0;
+    private long totalMillis = 0;
 
-    public int getTotalSeconds() {
-        return totalSeconds;
+    public void setTempoEvents(List<TempoEvent> tempoEvents) {
+        this.tempoEvents = tempoEvents;
     }
 
-    public void setTotalSeconds(int totalSeconds) {
-        this.totalSeconds = totalSeconds;
+    public List<TempoEvent> getTempoEvents() {
+        return tempoEvents;
+    }
+
+    public long getTotalMillis() {
+        return totalMillis;
+    }
+
+    public void setTotalMillis(long totalMillis) {
+        this.totalMillis = totalMillis;
     }
 
     public long getResolution() {
@@ -27,6 +37,14 @@ public class MultiValueMap<K, V> {
 
     public void setIgnoreEvents(HashSet<Integer> ignoreEvents) {
         this.ignoreEvents = ignoreEvents;
+    }
+
+    public String getSongName() {
+        return songName;
+    }
+
+    public void setSongName(String songName) {
+        this.songName = songName;
     }
 
     public String getFileName() {

@@ -1,26 +1,19 @@
 package com.sywyar.midiplayinidv;
 
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
-
 public class SongProgressBar {
     private final long totalMillis;
     private final int barLength;
     private boolean stop = false;
 
     private long currentMillis = 0;
-    private final ScheduledExecutorService executor = Executors.newSingleThreadScheduledExecutor();
 
-    public SongProgressBar(int totalSeconds, int barLength) {
-        this.totalMillis = totalSeconds * 1000L;
+    public SongProgressBar(long totalMillis, int barLength) {
+        this.totalMillis = totalMillis;
         this.barLength = barLength;
     }
 
     public void update() {
         if (currentMillis >= totalMillis && !stop) {
-            executor.shutdown();
-            executor.close();
             currentMillis = totalMillis;
             renderProgressBar();
             System.out.println();
@@ -91,16 +84,5 @@ public class SongProgressBar {
 
     public long getCurrentMillis() {
         return currentMillis;
-    }
-
-    public void startAutoUpdate() {
-        executor.scheduleAtFixedRate(() -> {
-            if (currentMillis <= totalMillis) {
-                update();
-            } else {
-                executor.shutdown();
-                executor.close();
-            }
-        }, 0, 100, TimeUnit.MILLISECONDS);
     }
 }

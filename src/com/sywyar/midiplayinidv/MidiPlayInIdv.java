@@ -3,16 +3,29 @@ package com.sywyar.midiplayinidv;
 import com.sywyar.keyboard.KeyBoardDLL;
 import com.sywyar.keyboard.keyboardenum.KeyCodeEnum;
 import com.sywyar.keyboard.keyboardenum.KeyTypeEnum;
+import org.mozilla.universalchardet.UniversalDetector;
 
 import javax.sound.midi.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 public class MidiPlayInIdv {
-    //static final String[] notes = {"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"};
-    //static final int[] notesNumber = {9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20};
-    static final int[] fall = {1, 4, 6, 9, 11};
+    private static final int[] AVAILABLE_NOTES = {
+            // 下行组（低音区）
+            48, 50, 52, 53, 55, 57, 59,  // z x c v b n m
+            // 中行组（中央C组）
+            60, 62, 64, 65, 67, 69, 71,  // a s d f g h j
+            // 上行组（高音区）
+            72, 74, 76, 77, 79, 81, 83   // q w e r t y u
+    };
+    private static final int[] AVAILABLE_NOTES_WITH_SHARPS = {
+            49, 51, 54, 56, 58,  // 低音区黑键
+            61, 63, 66, 68, 70,  // 中音区黑键
+            73, 75, 78, 80, 82   // 高音区黑键
+    };
 
     public static void main(String[] args) throws InvalidMidiDataException, IOException, InterruptedException {
         if (args.length < 1 || args[0].isEmpty()) {
@@ -53,14 +66,16 @@ public class MidiPlayInIdv {
         int num = 0;
         System.out.println("共" + multiValueMaps.size() + "首歌,播放列表如下：");
         for (MultiValueMap<Long, MidiPlayMessage> multiValueMap : multiValueMaps) {
-            System.out.println(++num + "." + multiValueMap.getFileName());
+            String name = multiValueMap.getFileName() + (multiValueMap.getSongName().isEmpty() ? "" : ("(" + multiValueMap.getSongName() + ")"));
+            System.out.println(++num + "." + name);
         }
 
         System.out.println();
 
         for (MultiValueMap<Long, MidiPlayMessage> multiValueMap : multiValueMaps) {
-            SongProgressBar progressBar = new SongProgressBar(multiValueMap.getTotalSeconds(), 40);
-            System.out.println("准备弹奏：" + multiValueMap.getFileName());
+            SongProgressBar progressBar = new SongProgressBar(multiValueMap.getTotalMillis(), 40);
+            String name = multiValueMap.getFileName() + (multiValueMap.getSongName().isEmpty() ? "" : ("(" + multiValueMap.getSongName() + ")"));
+            System.out.println("准备弹奏：" + name);
             Thread.sleep(1000);
             playMidiFile(multiValueMap, progressBar);
         }
@@ -104,10 +119,30 @@ public class MidiPlayInIdv {
                 }
 
                 if (message instanceof MetaMessage metaMessage) {
-                    if (metaMessage.getType() == 0x51) {
-                        byte[] data = metaMessage.getData();
-                        tempo = ((data[0] & 0xFF) << 16) | ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
-                        tempoEvents.add(new TempoEvent(event.getTick(), tempo));
+                    byte[] data = metaMessage.getData();
+                    switch (metaMessage.getType()) {
+                        case 0x51:
+                            tempo = ((data[0] & 0xFF) << 16) | ((data[1] & 0xFF) << 8) | (data[2] & 0xFF);
+                            tempoEvents.add(new TempoEvent(event.getTick(), tempo));
+                            break;
+                        case 0x03:
+                            if (midiPlayMessages.getSongName().isEmpty()) {
+                                String charsetName = detectCharset(data);
+                                Charset charset = StandardCharsets.UTF_8;
+                                try {
+                                    if (charsetName != null) {
+                                        charset = Charset.forName(charsetName);
+                                    }
+                                } catch (Exception ignored) {
+                                }
+
+                                String songName = new String(data, charset);
+                                if (isGarbled(songName)) {
+                                    songName = tryCommonCharsets(data);
+                                }
+                                midiPlayMessages.setSongName(songName.trim());
+                            }
+                            break;
                     }
                 }
 
@@ -158,26 +193,9 @@ public class MidiPlayInIdv {
 
         tempoEvents.sort(Comparator.comparingLong(TempoEvent::tick));
 
-        long currentTick = 0;
-        double totalSeconds = 0;
-        int currentTempo = tempoEvents.getFirst().tempo();
-
-        for (TempoEvent event : tempoEvents) {
-            long deltaTick = event.tick() - currentTick;
-            if (deltaTick > 0) {
-                double deltaSeconds = (deltaTick * currentTempo) / (resolution * 1_000_000.0);
-                totalSeconds += deltaSeconds;
-                currentTick = event.tick();
-            }
-            currentTempo = event.tempo();
-        }
-
-        if (maxTick > currentTick) {
-            long deltaTick = maxTick - currentTick;
-            double deltaSeconds = (deltaTick * currentTempo) / (resolution * 1_000_000.0);
-            totalSeconds += deltaSeconds;
-        }
-        midiPlayMessages.setTotalSeconds((int) totalSeconds);
+        long totalMillis = getTotalMillis(tempoEvents, resolution, maxTick);
+        midiPlayMessages.setTotalMillis(totalMillis);
+        midiPlayMessages.setTempoEvents(tempoEvents);
 
         //if (!ignoreEvents.isEmpty()) System.out.println("忽略的MIDI事件=" + ignoreEvents);
         midiPlayMessages.setIgnoreEvents(ignoreEvents);
@@ -185,29 +203,125 @@ public class MidiPlayInIdv {
         return midiPlayMessages;
     }
 
+    private static String detectCharset(byte[] data) {
+        UniversalDetector detector = new UniversalDetector(null);
+        detector.handleData(data, 0, data.length);
+        detector.dataEnd();
+        String encoding = detector.getDetectedCharset();
+        detector.reset();
+        return encoding;
+    }
+
+    private static String tryCommonCharsets(byte[] data) {
+        List<Charset> candidates = Arrays.asList(
+                StandardCharsets.UTF_8,
+                StandardCharsets.UTF_16,
+                StandardCharsets.UTF_16BE,
+                StandardCharsets.UTF_16LE,
+
+                // 简体中文
+                Charset.forName("GBK"),          // 中国大陆标准
+                Charset.forName("GB2312"),       // 旧版中文编码
+                Charset.forName("GB18030"),      // 最新国标扩展
+
+                // 繁体中文
+                Charset.forName("Big5"),         // 台湾/香港常用
+                Charset.forName("Big5-HKSCS"),   // 香港扩展
+
+                // 日文
+                Charset.forName("Shift_JIS"),    // 最广泛使用的日文编码
+                Charset.forName("Windows-31J"),  // Shift_JIS 扩展（Windows版）
+                Charset.forName("EUC-JP"),       // Unix系统常用
+                Charset.forName("ISO-2022-JP"),  // 邮件/网络协议
+
+                // 韩文
+                Charset.forName("EUC-KR"),       // 韩文标准
+                Charset.forName("ISO-2022-KR"),  // 邮件/网络协议
+
+                // 其他地区
+                StandardCharsets.ISO_8859_1,   // 西欧语言（常见错误回退）
+                Charset.forName("Windows-1252"), // 西欧扩展
+                Charset.forName("TIS-620")       // 泰语（兜底东南亚语言）
+        );
+
+        for (Charset charset : candidates) {
+            String text = new String(data, charset);
+            if (!isGarbled(text)) {
+                return text;
+            }
+        }
+        return new String(data, StandardCharsets.UTF_8); // 默认回退
+    }
+
+    private static boolean isGarbled(String text) {
+        int printable = 0;
+        for (char c : text.toCharArray()) {
+            if (c >= 0x20 && c <= 0x7E || Character.isIdeographic(c)) {
+                printable++;
+            }
+        }
+        return (printable * 1.0 / text.length()) < 0.5;
+    }
+
+    private static long getTotalMillis(List<TempoEvent> tempoEvents, int resolution, long maxTick) {
+        long currentTick = 0;
+        long totalMillis = 0;
+        int currentTempo = tempoEvents.isEmpty() ? 500000 : tempoEvents.getFirst().tempo();
+
+        for (TempoEvent event : tempoEvents) {
+            long deltaTick = event.tick() - currentTick;
+            if (deltaTick > 0) {
+                long deltaMillis = (deltaTick * (long) currentTempo) / (resolution * 1000L);
+                totalMillis += deltaMillis;
+                currentTick = event.tick();
+            }
+            currentTempo = event.tempo();
+        }
+
+        if (maxTick > currentTick) {
+            long deltaTick = maxTick - currentTick;
+            long deltaMillis = (deltaTick * (long) currentTempo) / (resolution * 1000L);
+            totalMillis += deltaMillis;
+        }
+
+        return totalMillis;
+    }
+
     private static void playMidiFile(MultiValueMap<Long, MidiPlayMessage> midiPlayMessages, SongProgressBar progressBar) throws InterruptedException {
         KeyBoardDLL keyBoard = new KeyBoardDLL();
         long ppq = midiPlayMessages.getResolution();
-        long lastTick = 0;
+
+        List<TempoEvent> tempoEvents = midiPlayMessages.getTempoEvents();
         Set<Long> sortedKeys = new TreeSet<>(midiPlayMessages.keySet());
-        for (Long l : sortedKeys) {
-            List<MidiPlayMessage> list = midiPlayMessages.getValues(l);
 
-            long tickDiff = Math.abs(l - lastTick);
-            double microsecondsPerTick = (midiPlayMessages.getTempo(l) / (double) ppq);
-            long timeInMillis = (long) ((tickDiff * microsecondsPerTick) / 1000);
-            int part = (int) (timeInMillis / 300);
-            long remainingTime = timeInMillis % 300;
-            for (int i = 0; i < part; i++) {
-                Thread.sleep(300);
-                progressBar.addCurrentMillis(300);
+        int currentTempoIndex = 0;
+        int currentTempo = tempoEvents.isEmpty() ? 500000 : tempoEvents.getFirst().tempo();
+        long lastTick = 0;
+
+        for (Long currentTick : sortedKeys) {
+            while (currentTempoIndex < tempoEvents.size()) {
+                TempoEvent nextTempo = tempoEvents.get(currentTempoIndex);
+                if (nextTempo.tick() > currentTick) break;
+
+                long deltaTick = nextTempo.tick() - lastTick;
+                double deltaMillis = (deltaTick * currentTempo) / (ppq * 1000.0);
+                Thread.sleep((long) deltaMillis);
+                progressBar.addCurrentMillis((long) deltaMillis);
+
+                currentTempo = nextTempo.tempo();
+                lastTick = nextTempo.tick();
+                currentTempoIndex++;
             }
-            Thread.sleep(remainingTime);
-            progressBar.addCurrentMillis(remainingTime);
 
-            lastTick = l;
-            for (MidiPlayMessage midiPlayMessage : list) {
-                keyBoard.sendKeyboardMessage(midiPlayMessage.keyCode(), midiPlayMessage.keyType());
+            long deltaTick = currentTick - lastTick;
+            double deltaMillis = (deltaTick * currentTempo) / (ppq * 1000.0);
+            Thread.sleep((long) deltaMillis);
+            progressBar.addCurrentMillis((long) deltaMillis);
+            lastTick = currentTick;
+
+            List<MidiPlayMessage> messages = midiPlayMessages.getValues(currentTick);
+            for (MidiPlayMessage msg : messages) {
+                keyBoard.sendKeyboardMessage(msg.keyCode(), msg.keyType());
             }
         }
 
@@ -225,24 +339,43 @@ public class MidiPlayInIdv {
         return KeyCodeEnum.noting;
     }
 
-    public static int findMidiNumber(int key) {
-        int octave = (key - 9) / 12;
-        int noteIndex = (key - 9) % 12;
+    public static int findMidiNumber(int originalKey) {
+        int naturalNote = removeSharpFlat(originalKey);
 
-        int finalNoteIndex = noteIndex;
-        boolean exists = Arrays.stream(fall)
-                .anyMatch(num -> num == finalNoteIndex);
+        int octaveAdjusted = smartOctaveShift(naturalNote);
 
-        if (exists) {
-            noteIndex--;
+        return findNearestAvailableNote(octaveAdjusted);
+    }
+
+    private static int removeSharpFlat(int midi) {
+        // C C→C | D D→D | E | F F→F | G G→G | A A→A | B
+        int[] naturalMap = {0, 0, 2, 2, 4, 5, 5, 7, 7, 9, 9, 11};
+        return (midi / 12) * 12 + naturalMap[midi % 12];
+    }
+
+    private static int smartOctaveShift(int midi) {
+        int octave = midi / 12;
+        int note = midi % 12;
+
+        if (octave < 3) {
+            return note + (3 * 12);
+        } else if (octave > 5) {
+            return note + (5 * 12);
         }
+        return midi;
+    }
 
-        if (octave < 4) {
-            octave = 4;
-        } else if (octave > 6) {
-            octave = 6;
+    private static int findNearestAvailableNote(int target) {
+        int closest = AVAILABLE_NOTES[0];
+        int minDiff = Math.abs(target - closest);
+
+        for (int note : AVAILABLE_NOTES) {
+            int diff = Math.abs(target - note);
+            if (diff < minDiff) {
+                minDiff = diff;
+                closest = note;
+            }
         }
-
-        return octave * 12 + noteIndex + 9;
+        return closest;
     }
 }
